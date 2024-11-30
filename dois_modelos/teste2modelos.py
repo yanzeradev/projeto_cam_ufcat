@@ -2,7 +2,7 @@ import cv2
 from ultralytics import YOLO
 
 # Carregar o modelo pré-treinado YOLOv8
-model_detection = YOLO("yolo11m-seg.pt")
+model_detection = YOLO("yolo11n-seg.pt")
 
 # Carregar o modelo YOLOv8 treinado personalizado
 model_classification = YOLO("modelo_treinado_v11_SGD-v4.pt")
