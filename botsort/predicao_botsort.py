@@ -5,7 +5,7 @@ from ultralytics import YOLO
 model_classification = YOLO("modelo_treinado_v11_SGD-v4.pt")
 
 # Inicializar a captura de vídeo
-cap = cv2.VideoCapture("cam1.mp4")
+cap = cv2.VideoCapture("cam2.mp4")
 
 # Inicializar o gravador de vídeo
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
