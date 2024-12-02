@@ -7,12 +7,22 @@ model_detection = YOLO("yolo11n-seg.pt")
 model_classification = YOLO("modelo_treinado_v11_SGD-v4.pt")
 
 # Inicializar a captura de vídeo
-cap = cv2.VideoCapture("cam2.mp4")
+cap = cv2.VideoCapture("cam3.mp4")
+
+# Obter dimensões e FPS do vídeo de entrada
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = cap.get(cv2.CAP_PROP_FPS)
+
+# Inicializar o VideoWriter para salvar o vídeo processado
+output_path = "output.mp4"
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Codec para .mp4
+out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
 # Variáveis globais
 line_points = []
 line_drawn = False
-button_coords = (50, 400, 150, 450)  # Coordenadas do "botão" (x1, y1, x2, y2)
+button_coords = (50, 100, 150, 150)  # Coordenadas do "botão" (x1, y1, x2, y2)
 
 # Função para desenhar pontos e botão
 def draw_interface(frame):
@@ -56,6 +66,7 @@ while not line_drawn:
 if not line_drawn or len(line_points) < 2:
     print("Linha não foi selecionada corretamente. Saindo.")
     cap.release()
+    out.release()
     exit()
 
 # Função para verificar se um ponto cruzou a linha poligonal
@@ -104,15 +115,20 @@ while cap.isOpened():
         # Verificar se a pessoa cruzou a linha
         if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
             if crossed_line(center, line_points):
+                inside_count += 1
+                unique_ids_inside.add(obj_id)
+            else:
+                outside_count += 1
+                unique_ids_outside.add(obj_id)
+        
+        # Verifica se saiu do grupo de fora para dentro e drecrementa
+        if obj_id not in unique_ids_inside and obj_id in unique_ids_outside:
+            if crossed_line(center, line_points):
                 # Se cruzou para dentro
                 inside_count += 1
                 unique_ids_inside.add(obj_id)  # Adiciona ao grupo dentro
-                if obj_id in unique_ids_outside:
-                    outside_count -= 1  # Decrementa no "fora" se a pessoa já estava fora
-            else:
-                # Se não cruzou, permanece fora
-                outside_count += 1
-                unique_ids_outside.add(obj_id)  # Adiciona ao grupo fora
+                outside_count -= 1  # Decrementa no "fora" se a pessoa já estava fora
+                unique_ids_outside.remove(obj_id)
 
     # Desenhar a linha salva no frame
     for i in range(1, len(line_points)):
@@ -122,10 +138,15 @@ while cap.isOpened():
     cv2.putText(frame, f'Entraram: {inside_count}', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     cv2.putText(frame, f'Fora: {outside_count}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
     
+    # Salvar o frame processado no arquivo de saída
+    out.write(frame)
+
     # Mostrar o frame com as BBoxes e contagens
     cv2.imshow("Rastreamento", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
+# Finalizar recursos
 cap.release()
+out.release()  # Liberar o VideoWriter
 cv2.destroyAllWindows()
