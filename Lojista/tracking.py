@@ -1,4 +1,5 @@
 import cv2
+from scipy.spatial.distance import cosine
 from utils import crossed_line, line_points
 
 def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes):
@@ -18,9 +19,23 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
 
         # Extrair características utilizando o modelo OSNet
         person_crop = frame[int(y1):int(y2), int(x1):int(x2)]
-        features = extractor(person_crop)
-        features_dict[obj_id] = features
+        features = extractor(person_crop).detach().cpu().numpy().flatten()
+        
+        # Associar ID baseado em similaridade de características
+        matched_id = None
+        for known_id, known_features in features_dict.items():
+            known_features = known_features.flatten()  # Garantir 1D
+            similarity = 1 - cosine(features, known_features)
+            if similarity > 0.85:  # Limiar ajustável
+                matched_id = known_id
+                break
 
+        if matched_id:
+            obj_id = matched_id
+        else:
+            features_dict[obj_id] = features
+
+        # Atualizar contagem e IDs únicos
         if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
             if crossed_line(center, line_points):
                 inside_count += 1
