@@ -1,5 +1,5 @@
 import cv2
-from modules.utils import crossed_line, line_points
+from utils import crossed_line, line_points
 
 def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes):
     # Detecção inicial usando YOLO
