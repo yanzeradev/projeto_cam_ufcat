@@ -1,13 +1,23 @@
 import cv2
 from scipy.spatial.distance import cosine
+from collections import defaultdict, deque
+import time
 from utils import crossed_line, line_points
 
+# Configurações
+SIMILARITY_THRESHOLD = 0.85  # Limiar de similaridade para re-identificação
+FEATURE_TTL = 120  # Tempo em segundos para manter as características no dicionário
+
 def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes):
+    # Dicionário para armazenar características com timestamp
+    current_time = time.time()
+    features_dict = {obj_id: (features, timestamp) for obj_id, (features, timestamp) in features_dict.items() if current_time - timestamp <= FEATURE_TTL}
+
     # Detecção inicial usando YOLO
-    results = model_detection.track(frame, imgsz=1280, conf=0.6, iou=0.7, persist=True)
+    results = model_detection.track(frame, imgsz=1280, conf=0.5, iou=0.6, persist=True)
     detections = [det for det in results[0].boxes if det.cls == 0]  # 'cls' = 0 é pessoa
 
-    tracking_results = model_classification.track(frame, imgsz=1280, conf=0.85, persist=True, iou=0.6)
+    tracking_results = model_classification.track(frame, imgsz=1280, conf=0.6, persist=True, iou=0.7)
 
     for det in tracking_results[0].boxes:
         x1, y1, x2, y2 = map(int, det.xyxy[0].cpu().numpy())
@@ -20,20 +30,20 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
         # Extrair características utilizando o modelo OSNet
         person_crop = frame[int(y1):int(y2), int(x1):int(x2)]
         features = extractor(person_crop).detach().cpu().numpy().flatten()
-        
+
         # Associar ID baseado em similaridade de características
         matched_id = None
-        for known_id, known_features in features_dict.items():
-            known_features = known_features.flatten()  # Garantir 1D
+        max_similarity = 0
+        for known_id, (known_features, _) in features_dict.items():
             similarity = 1 - cosine(features, known_features)
-            if similarity > 0.85:  # Limiar ajustável
+            if similarity > max_similarity and similarity > SIMILARITY_THRESHOLD:
+                max_similarity = similarity
                 matched_id = known_id
-                break
 
         if matched_id:
             obj_id = matched_id
         else:
-            features_dict[obj_id] = features
+            features_dict[obj_id] = (features, current_time)
 
         # Atualizar contagem e IDs únicos
         if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
