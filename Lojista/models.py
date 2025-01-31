@@ -5,7 +5,7 @@ import cv2
 
 def load_models():
     # Carregar os modelos YOLO
-    model_detection = YOLO("yolov8n-seg.pt")
+    model_detection = YOLO("yolov8m.pt")
     model_classification = YOLO(r"C:\Users\yanka\Documents\DEV\SenseVision\projeto_cam_ufcat\modelo_treinado_v8_Adam-310125-64batch.pt")
 
     # Inicializar o extrator de características do Torchreid
