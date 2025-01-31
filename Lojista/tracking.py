@@ -14,10 +14,10 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
     features_dict = {obj_id: (features, timestamp) for obj_id, (features, timestamp) in features_dict.items() if current_time - timestamp <= FEATURE_TTL}
 
     # Detecção inicial usando YOLO
-    results = model_detection.track(frame, imgsz=1280, conf=0.5, iou=0.5, persist=True)
+    results = model_detection.track(frame, imgsz=640, conf=0.5, iou=0.5, persist=True)
     detections = [det for det in results[0].boxes if det.cls == 0]  # 'cls' = 0 é pessoa
 
-    tracking_results = model_classification.track(frame, imgsz=1280, conf=0.6, persist=True, iou=0.7)
+    tracking_results = model_classification.track(frame, imgsz=640, conf=0.6, persist=True, iou=0.7)
 
     for det in tracking_results[0].boxes:
         x1, y1, x2, y2 = map(int, det.xyxy[0].cpu().numpy())
