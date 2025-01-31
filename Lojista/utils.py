@@ -10,7 +10,7 @@ frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fps = cap.get(cv2.CAP_PROP_FPS)
 
 # Inicializar o VideoWriter para salvar o vídeo processado
-output_path = "output_cam5.mp4"
+output_path = "output_cam.mp4"
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Codec para .mp4
 out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
