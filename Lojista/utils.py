@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 # Inicializar a captura de vídeo
-cap = cv2.VideoCapture(r"C:\Users\yanka\Documents\DEV\YanProjeto\projeto_cam_ufcat\cam2.mp4")
+cap = cv2.VideoCapture(r"C:\Users\yanka\Documents\DEV\SenseVision\projeto_cam_ufcat\cam2.mp4")
 
 # Obter dimensões e FPS do vídeo de entrada
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -10,7 +10,7 @@ frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fps = cap.get(cv2.CAP_PROP_FPS)
 
 # Inicializar o VideoWriter para salvar o vídeo processado
-output_path = "output_cam3.mp4"
+output_path = "output_cam5.mp4"
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Codec para .mp4
 out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
