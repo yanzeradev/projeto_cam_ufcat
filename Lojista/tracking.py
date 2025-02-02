@@ -4,25 +4,29 @@ from collections import defaultdict, deque
 import time
 from utils import crossed_line, line_points
 from models import load_models
-
-# Carregar os modelos usando a função load_models
-model_detection, model_classification, extractor = load_models()
+import numpy as np
 
 # Configurações
-SIMILARITY_THRESHOLD = 0.9  # Limiar de similaridade para re-identificação
-FEATURE_TTL = 5400  # Tempo em segundos para manter as características no dicionário
-FRAMES_TO_CONFIRM = 15  # Número de frames para confirmar a classe
+SIMILARITY_THRESHOLD = 0.85  # Ajuste o limiar de similaridade
+FEATURE_TTL = 5400  # Tempo em segundos para manter as características
+MAX_FEATURES_PER_ID = 20  # Número máximo de características armazenadas por ID
+FRAMES_TO_CONFIRM = 15
 
 def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts):
-    # Dicionário para armazenar características com timestamp
     current_time = time.time()
-    features_dict = {obj_id: (features, timestamp) for obj_id, (features, timestamp) in features_dict.items() if current_time - timestamp <= FEATURE_TTL}
+    
+    # Limpar características expiradas
+    features_dict = {
+        obj_id: (features_list, timestamp)
+        for obj_id, (features_list, timestamp) in features_dict.items()
+        if current_time - timestamp <= FEATURE_TTL
+    }
 
     # Detecção inicial usando YOLO
     results = model_detection.track(frame, persist=True)
     detections = [det for det in results[0].boxes if det.cls == 0]  # 'cls' = 0 é pessoa
 
-    tracking_results = model_classification.track(frame, conf=0.7, persist=True, iou=0.7)
+    tracking_results = model_classification.track(frame, conf=0.8, persist=True, iou=0.7)
 
     for det in tracking_results[0].boxes:
         x1, y1, x2, y2 = map(int, det.xyxy[0].cpu().numpy())
@@ -61,19 +65,29 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
         person_crop = frame[int(y1):int(y2), int(x1):int(x2)]
         features = extractor(person_crop).detach().cpu().numpy().flatten()
 
+        # Armazenar múltiplas características para cada ID
+        if obj_id not in features_dict:
+            features_dict[obj_id] = (deque(maxlen=MAX_FEATURES_PER_ID), current_time)
+        features_dict[obj_id][0].append(features)
+
+        # Calcular a média das características para o ID atual
+        avg_features_current = np.mean(features_dict[obj_id][0], axis=0)
+
         # Associar ID baseado em similaridade de características
         matched_id = None
         max_similarity = 0
-        for known_id, (known_features, _) in features_dict.items():
-            similarity = 1 - cosine(features, known_features)
+        for known_id, (known_features_list, _) in features_dict.items():
+            if known_id == obj_id:
+                continue  # Ignorar o próprio objeto
+            avg_features_known = np.mean(known_features_list, axis=0)
+            similarity = 1 - cosine(avg_features_current, avg_features_known)
             if similarity > max_similarity and similarity > SIMILARITY_THRESHOLD:
                 max_similarity = similarity
                 matched_id = known_id
 
         if matched_id:
+            print(f"Objeto {obj_id} associado ao ID {matched_id} com similaridade {max_similarity:.2f}")
             obj_id = matched_id
-        else:
-            features_dict[obj_id] = (features, current_time)
 
         # Atualizar contagem e IDs únicos
         if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
@@ -113,25 +127,3 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
     cv2.putText(frame, f'Fora: {outside_count}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
     return inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts
-
-# Inicialização das variáveis
-frame_counts = defaultdict(int)
-class_counts = defaultdict(lambda: defaultdict(int))
-
-# Loop de processamento de vídeo
-cap = cv2.VideoCapture('video.mp4')
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
-
-    inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts = process_frame(
-        frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts
-    )
-
-    cv2.imshow('Frame', frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
