@@ -1,5 +1,6 @@
 import cv2
 import pickle
+from collections import defaultdict
 from models import load_models
 from utils import cap, out
 from tracking import process_frame
@@ -14,6 +15,10 @@ unique_ids_inside = set()
 unique_ids_outside = set()
 features_dict = {}
 
+# Inicializar contadores de frames e classes
+frame_counts = defaultdict(int)  # Conta o número de frames por objeto
+class_counts = defaultdict(lambda: defaultdict(int))  # Conta a frequência de classes por objeto
+
 # Definir as classes do modelo
 classes = {0: "homem", 1: "mulher", 2: "naoidentificado"}
 
@@ -22,9 +27,12 @@ while cap.isOpened():
     if not ret:
         break
 
-    inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict = process_frame(
+    # Chamar a função process_frame com todos os argumentos necessários
+    inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts = process_frame(
         frame, model_detection, model_classification, extractor, 
-        inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes)
+        inside_count, outside_count, unique_ids_inside, unique_ids_outside, 
+        features_dict, classes, frame_counts, class_counts
+    )
 
     # Salvar o frame processado no arquivo de saída
     out.write(frame)
@@ -38,6 +46,7 @@ while cap.isOpened():
 with open('features_dict.pkl', 'wb') as f:
     pickle.dump(features_dict, f)
 
+# Liberar recursos
 cap.release()
 out.release()
 cv2.destroyAllWindows()
