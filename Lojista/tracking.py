@@ -8,7 +8,7 @@ from utils import crossed_line, line_points
 from models import load_models
 
 # Configurações
-SIMILARITY_THRESHOLD = 0.85  # Ajuste o limiar de similaridade
+SIMILARITY_THRESHOLD = 0.8  # Ajuste o limiar de similaridade
 FEATURE_TTL = 5400  # Tempo em segundos para manter as características
 MAX_FEATURES_PER_ID = 20  # Número máximo de características armazenadas por ID
 FRAMES_TO_CONFIRM = 15
