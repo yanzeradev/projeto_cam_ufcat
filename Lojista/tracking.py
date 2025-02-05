@@ -2,15 +2,22 @@ import cv2
 from scipy.spatial.distance import cosine
 from collections import defaultdict, deque
 import time
+import os
+import numpy as np
 from utils import crossed_line, line_points
 from models import load_models
-import numpy as np
 
 # Configurações
 SIMILARITY_THRESHOLD = 0.85  # Ajuste o limiar de similaridade
 FEATURE_TTL = 5400  # Tempo em segundos para manter as características
 MAX_FEATURES_PER_ID = 20  # Número máximo de características armazenadas por ID
 FRAMES_TO_CONFIRM = 15
+SAVE_IMAGES = True  # Ativar/desativar salvamento de imagens
+IMAGES_DIR = "id_images"  # Diretório para salvar as imagens por ID
+
+# Criar diretório para salvar imagens, se não existir
+if SAVE_IMAGES and not os.path.exists(IMAGES_DIR):
+    os.makedirs(IMAGES_DIR)
 
 def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts):
     current_time = time.time()
@@ -88,6 +95,14 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
         if matched_id:
             print(f"Objeto {obj_id} associado ao ID {matched_id} com similaridade {max_similarity:.2f}")
             obj_id = matched_id
+
+        # Salvar imagem do ID, se necessário
+        if SAVE_IMAGES:
+            id_dir = os.path.join(IMAGES_DIR, str(obj_id))
+            if not os.path.exists(id_dir):
+                os.makedirs(id_dir)
+            image_path = os.path.join(id_dir, f"{int(current_time)}.jpg")
+            cv2.imwrite(image_path, person_crop)
 
         # Atualizar contagem e IDs únicos
         if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
