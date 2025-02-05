@@ -8,7 +8,7 @@ from utils import crossed_line, line_points
 from models import load_models
 
 # Configurações
-SIMILARITY_THRESHOLD = 0.8  # Ajuste o limiar de similaridade
+SIMILARITY_THRESHOLD = 0.9  # Ajuste o limiar de similaridade
 FEATURE_TTL = 5400  # Tempo em segundos para manter as características
 MAX_FEATURES_PER_ID = 20  # Número máximo de características armazenadas por ID
 FRAMES_TO_CONFIRM = 15
@@ -19,7 +19,7 @@ IMAGES_DIR = "id_images"  # Diretório para salvar as imagens por ID
 if SAVE_IMAGES and not os.path.exists(IMAGES_DIR):
     os.makedirs(IMAGES_DIR)
 
-def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts):
+def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts, confirmed_ids):
     current_time = time.time()
     
     # Limpar características expiradas
@@ -43,30 +43,44 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
         class_name = classes.get(class_id, "desconhecido")
         center = ((x1 + x2) // 2, (y1 + y2) // 2)
 
-        # Se o objeto não está em frame_counts, inicializar como "não identificado"
-        if obj_id not in frame_counts:
-            frame_counts[obj_id] = 0
-            class_counts[obj_id] = defaultdict(int)
-            class_id = 2  # Não identificado
-            class_name = classes[2]
+        # Se o objeto já foi confirmado, usar o ID e a classe confirmados
+        if obj_id in confirmed_ids:
+            confirmed_data = confirmed_ids[obj_id]
+            obj_id = confirmed_data["id"]
+            class_id = confirmed_data["class_id"]
+            class_name = confirmed_data["class_name"]
+        else:
+            # Se o objeto não está em frame_counts, inicializar como "não identificado"
+            if obj_id not in frame_counts:
+                frame_counts[obj_id] = 0
+                class_counts[obj_id] = defaultdict(int)
+                class_id = 2  # Não identificado
+                class_name = classes[2]
 
-        # Incrementar o contador de frames para o objeto
-        frame_counts[obj_id] += 1
+            # Incrementar o contador de frames para o objeto
+            frame_counts[obj_id] += 1
 
-        # Contar a classe atual
-        class_counts[obj_id][class_id] += 1
+            # Contar a classe atual
+            class_counts[obj_id][class_id] += 1
 
-        # Se atingiu 15 frames, determinar a classe predominante
-        if frame_counts[obj_id] == FRAMES_TO_CONFIRM:
-            predominant_class = max(class_counts[obj_id], key=class_counts[obj_id].get)
-            class_id = predominant_class
-            class_name = classes[predominant_class]
-            print(f"Objeto {obj_id} confirmado como {class_name} após {FRAMES_TO_CONFIRM} frames.")
+            # Se atingiu 15 frames, determinar a classe predominante
+            if frame_counts[obj_id] == FRAMES_TO_CONFIRM:
+                predominant_class = max(class_counts[obj_id], key=class_counts[obj_id].get)
+                class_id = predominant_class
+                class_name = classes[predominant_class]
+                print(f"Objeto {obj_id} confirmado como {class_name} após {FRAMES_TO_CONFIRM} frames.")
 
-        # Se ainda não atingiu 15 frames, manter como "não identificado"
-        elif frame_counts[obj_id] < FRAMES_TO_CONFIRM:
-            class_id = 2  # Não identificado
-            class_name = classes[2]
+                # Armazenar o ID e a classe confirmados
+                confirmed_ids[obj_id] = {
+                    "id": obj_id,
+                    "class_id": class_id,
+                    "class_name": class_name
+                }
+
+            # Se ainda não atingiu 15 frames, manter como "não identificado"
+            elif frame_counts[obj_id] < FRAMES_TO_CONFIRM:
+                class_id = 2  # Não identificado
+                class_name = classes[2]
 
         # Extrair características utilizando o modelo OSNet
         person_crop = frame[int(y1):int(y2), int(x1):int(x2)]
@@ -141,4 +155,4 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
     cv2.putText(frame, f'Entraram: {inside_count}', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     cv2.putText(frame, f'Fora: {outside_count}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-    return inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts
+    return inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts, confirmed_ids
