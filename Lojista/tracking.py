@@ -8,7 +8,7 @@ from utils import crossed_line, line_points
 from models import load_models
 
 # Configurações
-SIMILARITY_THRESHOLD = 0.80  # Ajuste o limiar de similaridade
+SIMILARITY_THRESHOLD = 0.8  # Ajuste o limiar de similaridade
 FEATURE_TTL = 5400  # Tempo em segundos para manter as características
 MAX_FEATURES_PER_ID = 20  # Número máximo de características armazenadas por ID
 FRAMES_TO_CONFIRM = 15
@@ -33,7 +33,7 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
     results = model_detection.track(frame, persist=True)
     detections = [det for det in results[0].boxes if det.cls == 0]  # 'cls' = 0 é pessoa
 
-    tracking_results = model_classification.track(frame, conf=0.8, persist=True, iou=0.7)
+    tracking_results = model_classification.track(frame, conf=0.6, persist=True, iou=0.4)
 
     for det in tracking_results[0].boxes:
         x1, y1, x2, y2 = map(int, det.xyxy[0].cpu().numpy())
@@ -42,6 +42,35 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
         class_id = int(det.cls[0].item())
         class_name = classes.get(class_id, "desconhecido")
         center = ((x1 + x2) // 2, (y1 + y2) // 2)
+
+        # Extrair características utilizando o modelo OSNet
+        person_crop = frame[int(y1):int(y2), int(x1):int(x2)]
+        features = extractor(person_crop).detach().cpu().numpy().flatten()
+
+        # Associar ID baseado em similaridade de características
+        matched_id = None
+        max_similarity = 0
+        for known_id, (known_features_list, _) in features_dict.items():
+            if known_id == obj_id:
+                continue  # Ignorar o próprio objeto
+            avg_features_known = np.mean(known_features_list, axis=0)
+            similarity = 1 - cosine(features, avg_features_known)
+            if similarity > max_similarity and similarity > SIMILARITY_THRESHOLD:
+                max_similarity = similarity
+                matched_id = known_id
+
+        # Se encontrou um ID correspondente, reutilizar o ID existente
+        if matched_id:
+            print(f"Objeto {obj_id} corresponde ao ID {matched_id} com similaridade {max_similarity:.2f}")
+            obj_id = matched_id  # Reutilizar o ID existente
+
+            # Adicionar as características atuais ao histórico do ID existente
+            features_dict[obj_id][0].append(features)
+        else:
+            # Se não encontrou correspondência, armazenar as características para o novo ID
+            if obj_id not in features_dict:
+                features_dict[obj_id] = (deque(maxlen=MAX_FEATURES_PER_ID), current_time)
+            features_dict[obj_id][0].append(features)
 
         # Se o objeto já foi confirmado, usar o ID e a classe confirmados
         if obj_id in confirmed_ids:
@@ -91,40 +120,6 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
             elif frame_counts[obj_id] < FRAMES_TO_CONFIRM:
                 class_id = 2  # Não identificado
                 class_name = classes[2]
-
-        # Extrair características utilizando o modelo OSNet
-        person_crop = frame[int(y1):int(y2), int(x1):int(x2)]
-        features = extractor(person_crop).detach().cpu().numpy().flatten()
-
-        # Armazenar múltiplas características para cada ID
-        if obj_id not in features_dict:
-            features_dict[obj_id] = (deque(maxlen=MAX_FEATURES_PER_ID), current_time)
-        features_dict[obj_id][0].append(features)
-
-        # Só comparar características se o objeto não foi confirmado
-        if obj_id not in confirmed_ids or not confirmed_ids[obj_id].get("confirmed", False):
-            # Calcular a média das características para o ID atual
-            avg_features_current = np.mean(features_dict[obj_id][0], axis=0)
-
-            # Associar ID baseado em similaridade de características
-            matched_id = None
-            max_similarity = 0
-            for known_id, (known_features_list, _) in features_dict.items():
-                if known_id == obj_id:
-                    continue  # Ignorar o próprio objeto
-                avg_features_known = np.mean(known_features_list, axis=0)
-                similarity = 1 - cosine(avg_features_current, avg_features_known)
-                if similarity > max_similarity and similarity > SIMILARITY_THRESHOLD:
-                    max_similarity = similarity
-                    matched_id = known_id
-
-            if matched_id:
-                print(f"Objeto {obj_id} associado ao ID {matched_id} com similaridade {max_similarity:.2f}")
-                obj_id = matched_id
-
-                # Atualizar o ID confirmado, se necessário
-                if obj_id in confirmed_ids:
-                    confirmed_ids[matched_id] = confirmed_ids.pop(obj_id)
 
         # Salvar imagem do ID, se necessário
         if SAVE_IMAGES:
