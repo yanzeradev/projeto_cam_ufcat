@@ -8,7 +8,7 @@ from utils import crossed_line, line_points
 from models import load_models
 
 # Configurações
-SIMILARITY_THRESHOLD = 0.9  # Ajuste o limiar de similaridade
+SIMILARITY_THRESHOLD = 0.8  # Ajuste o limiar de similaridade
 FEATURE_TTL = 5400  # Tempo em segundos para manter as características
 MAX_FEATURES_PER_ID = 20  # Número máximo de características armazenadas por ID
 FRAMES_TO_CONFIRM = 15
@@ -33,7 +33,7 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
     results = model_detection.track(frame, persist=True)
     detections = [det for det in results[0].boxes if det.cls == 0]  # 'cls' = 0 é pessoa
 
-    tracking_results = model_classification.track(frame, conf=0.8, persist=True, iou=0.7)
+    tracking_results = model_classification.track(frame, conf=0.75, persist=True, iou=0.7)
 
     for det in tracking_results[0].boxes:
         x1, y1, x2, y2 = map(int, det.xyxy[0].cpu().numpy())
@@ -77,6 +77,15 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
                     "class_name": class_name
                 }
 
+                # Só atualizar a contagem após a confirmação do ID e da classe
+                if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
+                    if crossed_line(center, line_points):
+                        inside_count += 1
+                        unique_ids_inside.add(obj_id)
+                    else:
+                        outside_count += 1
+                        unique_ids_outside.add(obj_id)
+
             # Se ainda não atingiu 15 frames, manter como "não identificado"
             elif frame_counts[obj_id] < FRAMES_TO_CONFIRM:
                 class_id = 2  # Não identificado
@@ -118,21 +127,22 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
             image_path = os.path.join(id_dir, f"{int(current_time)}.jpg")
             cv2.imwrite(image_path, person_crop)
 
-        # Atualizar contagem e IDs únicos
-        if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
-            if crossed_line(center, line_points):
-                inside_count += 1
-                unique_ids_inside.add(obj_id)
-            else:
-                outside_count += 1
-                unique_ids_outside.add(obj_id)
+        # Atualizar contagem e IDs únicos (apenas para objetos confirmados)
+        if obj_id in confirmed_ids:
+            if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
+                if crossed_line(center, line_points):
+                    inside_count += 1
+                    unique_ids_inside.add(obj_id)
+                else:
+                    outside_count += 1
+                    unique_ids_outside.add(obj_id)
 
-        if obj_id not in unique_ids_inside and obj_id in unique_ids_outside:
-            if crossed_line(center, line_points):
-                inside_count += 1
-                unique_ids_inside.add(obj_id)
-                outside_count -= 1
-                unique_ids_outside.remove(obj_id)
+            if obj_id not in unique_ids_inside and obj_id in unique_ids_outside:
+                if crossed_line(center, line_points):
+                    inside_count += 1
+                    unique_ids_inside.add(obj_id)
+                    outside_count -= 1
+                    unique_ids_outside.remove(obj_id)
 
         # Ajustar cor da caixa com base na classe
         if class_name == "homem":
