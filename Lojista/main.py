@@ -1,6 +1,6 @@
 import cv2
 import pickle
-from collections import defaultdict
+from collections import defaultdict, deque
 from models import load_models
 from utils import cap, out
 from tracking import process_frame
@@ -14,6 +14,7 @@ outside_count = 0
 unique_ids_inside = set()
 unique_ids_outside = set()
 features_dict = {}
+trajectories = {}  # Inicializar o dicionário de trajetórias
 
 # Inicializar contadores de frames e classes
 frame_counts = defaultdict(int)  # Conta o número de frames por objeto
@@ -29,8 +30,9 @@ while cap.isOpened():
     if not ret:
         break
 
-    inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts, confirmed_ids = process_frame(
-        frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts, confirmed_ids
+    # Chamar a função process_frame com o parâmetro trajectories
+    inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts, confirmed_ids, trajectories = process_frame(
+        frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts, confirmed_ids, trajectories
     )
 
     # Salvar o frame processado no arquivo de saída
