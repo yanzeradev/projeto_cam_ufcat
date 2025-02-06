@@ -19,7 +19,11 @@ IMAGES_DIR = "id_images"  # Diretório para salvar as imagens por ID
 if SAVE_IMAGES and not os.path.exists(IMAGES_DIR):
     os.makedirs(IMAGES_DIR)
 
-def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts, confirmed_ids):
+# Configurações adicionais para análise de trajetória
+TRAJECTORY_HISTORY_LENGTH = 40  # Número de posições anteriores a serem armazenadas
+POSITION_THRESHOLD = 100  # Distância máxima (em pixels) para considerar uma correspondência de trajetória
+
+def process_frame(frame, model_detection, model_classification, extractor, inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, classes, frame_counts, class_counts, confirmed_ids, trajectories):
     current_time = time.time()
     
     # Limpar características expiradas
@@ -29,15 +33,17 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
         if current_time - timestamp <= FEATURE_TTL
     }
 
-    # Detecção inicial usando YOLO
-    results = model_detection.track(frame, persist=True)
-    detections = [det for det in results[0].boxes if det.cls == 0]  # 'cls' = 0 é pessoa
+    # Limpar trajetórias expiradas
+    trajectories = {
+        obj_id: traj for obj_id, traj in trajectories.items()
+        if obj_id in features_dict  # Manter apenas trajetórias de IDs ativos
+    }
 
-    tracking_results = model_classification.track(frame, conf=0.6, persist=True, iou=0.4)
+    # Detecção inicial usando YOLO
+    tracking_results = model_classification.track(frame, conf=0.65, persist=True, iou=0.6)
 
     for det in tracking_results[0].boxes:
         x1, y1, x2, y2 = map(int, det.xyxy[0].cpu().numpy())
-        obj_id = int(det.id)
         confidence = det.conf[0].item()
         class_id = int(det.cls[0].item())
         class_name = classes.get(class_id, "desconhecido")
@@ -47,12 +53,10 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
         person_crop = frame[int(y1):int(y2), int(x1):int(x2)]
         features = extractor(person_crop).detach().cpu().numpy().flatten()
 
-        # Associar ID baseado em similaridade de características
+        # Verificar se a detecção corresponde a um ID já existente com base nas características
         matched_id = None
         max_similarity = 0
         for known_id, (known_features_list, _) in features_dict.items():
-            if known_id == obj_id:
-                continue  # Ignorar o próprio objeto
             avg_features_known = np.mean(known_features_list, axis=0)
             similarity = 1 - cosine(features, avg_features_known)
             if similarity > max_similarity and similarity > SIMILARITY_THRESHOLD:
@@ -61,63 +65,139 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
 
         # Se encontrou um ID correspondente, reutilizar o ID existente
         if matched_id:
-            print(f"Objeto {obj_id} corresponde ao ID {matched_id} com similaridade {max_similarity:.2f}")
+            print(f"Detecção corresponde ao ID {matched_id} com similaridade {max_similarity:.2f}")
             obj_id = matched_id  # Reutilizar o ID existente
 
             # Adicionar as características atuais ao histórico do ID existente
             features_dict[obj_id][0].append(features)
-        else:
-            # Se não encontrou correspondência, armazenar as características para o novo ID
-            if obj_id not in features_dict:
-                features_dict[obj_id] = (deque(maxlen=MAX_FEATURES_PER_ID), current_time)
-            features_dict[obj_id][0].append(features)
 
-        # Se o objeto já foi confirmado, usar o ID e a classe confirmados
-        if obj_id in confirmed_ids:
-            confirmed_data = confirmed_ids[obj_id]
-            obj_id = confirmed_data["id"]
-            class_id = confirmed_data["class_id"]
-            class_name = confirmed_data["class_name"]
+            # Atualizar a trajetória do ID existente
+            if obj_id in trajectories:
+                trajectories[obj_id].append(center)
+                if len(trajectories[obj_id]) > TRAJECTORY_HISTORY_LENGTH:
+                    trajectories[obj_id].popleft()
+            else:
+                trajectories[obj_id] = deque([center], maxlen=TRAJECTORY_HISTORY_LENGTH)
+
+            # Se o objeto já foi confirmado, usar o ID e a classe confirmados
+            if obj_id in confirmed_ids:
+                confirmed_data = confirmed_ids[obj_id]
+                class_id = confirmed_data["class_id"]
+                class_name = confirmed_data["class_name"]
+            else:
+                # Se ainda não foi confirmado, continuar contando os frames
+                frame_counts[obj_id] += 1
+                class_counts[obj_id][class_id] += 1
+
+                # Se atingiu 15 frames, confirmar o ID
+                if frame_counts[obj_id] == FRAMES_TO_CONFIRM:
+                    predominant_class = max(class_counts[obj_id], key=class_counts[obj_id].get)
+                    class_id = predominant_class
+                    class_name = classes[predominant_class]
+                    print(f"Objeto {obj_id} confirmado como {class_name} após {FRAMES_TO_CONFIRM} frames.")
+
+                    # Armazenar o ID e a classe confirmados
+                    confirmed_ids[obj_id] = {
+                        "id": obj_id,
+                        "class_id": class_id,
+                        "class_name": class_name,
+                        "confirmed": True  # Marcar como confirmado
+                    }
+
+                    # Só atualizar a contagem após a confirmação do ID e da classe
+                    if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
+                        if crossed_line(center, line_points):
+                            inside_count += 1
+                            unique_ids_inside.add(obj_id)
+                        else:
+                            outside_count += 1
+                            unique_ids_outside.add(obj_id)
+
         else:
-            # Se o objeto não está em frame_counts, inicializar como "não identificado"
-            if obj_id not in frame_counts:
-                frame_counts[obj_id] = 0
+            # Se não encontrou correspondência, verificar a trajetória
+            trajectory_matched_id = None
+            min_distance = float('inf')
+
+            for known_id, traj in trajectories.items():
+                if len(traj) < 2:
+                    continue  # Não há trajetória suficiente para prever
+
+                # Prever a próxima posição com base na trajetória
+                last_pos = traj[-1]
+                prev_pos = traj[-2]
+                delta_x = last_pos[0] - prev_pos[0]
+                delta_y = last_pos[1] - prev_pos[1]
+                predicted_pos = (last_pos[0] + delta_x, last_pos[1] + delta_y)
+
+                # Calcular a distância entre a posição atual e a posição prevista
+                distance = np.sqrt((center[0] - predicted_pos[0]) ** 2 + (center[1] - predicted_pos[1]) ** 2)
+
+                if distance < min_distance and distance < POSITION_THRESHOLD:
+                    min_distance = distance
+                    trajectory_matched_id = known_id
+
+            # Se encontrou uma correspondência de trajetória, reutilizar o ID existente
+            if trajectory_matched_id:
+                print(f"Detecção corresponde ao ID {trajectory_matched_id} com base na trajetória (distância: {min_distance:.2f} pixels)")
+                obj_id = trajectory_matched_id  # Reutilizar o ID existente
+
+                # Adicionar as características atuais ao histórico do ID existente
+                features_dict[obj_id][0].append(features)
+
+                # Atualizar a trajetória do ID existente
+                trajectories[obj_id].append(center)
+
+                # Se o objeto já foi confirmado, usar o ID e a classe confirmados
+                if obj_id in confirmed_ids:
+                    confirmed_data = confirmed_ids[obj_id]
+                    class_id = confirmed_data["class_id"]
+                    class_name = confirmed_data["class_name"]
+                else:
+                    # Se ainda não foi confirmado, continuar contando os frames
+                    frame_counts[obj_id] += 1
+                    class_counts[obj_id][class_id] += 1
+
+                    # Se atingiu 15 frames, confirmar o ID
+                    if frame_counts[obj_id] == FRAMES_TO_CONFIRM:
+                        predominant_class = max(class_counts[obj_id], key=class_counts[obj_id].get)
+                        class_id = predominant_class
+                        class_name = classes[predominant_class]
+                        print(f"Objeto {obj_id} confirmado como {class_name} após {FRAMES_TO_CONFIRM} frames.")
+
+                        # Armazenar o ID e a classe confirmados
+                        confirmed_ids[obj_id] = {
+                            "id": obj_id,
+                            "class_id": class_id,
+                            "class_name": class_name,
+                            "confirmed": True  # Marcar como confirmado
+                        }
+
+                        # Só atualizar a contagem após a confirmação do ID e da classe
+                        if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
+                            if crossed_line(center, line_points):
+                                inside_count += 1
+                                unique_ids_inside.add(obj_id)
+                            else:
+                                outside_count += 1
+                                unique_ids_outside.add(obj_id)
+
+            else:
+                # Se não encontrou correspondência, criar um novo ID temporário
+                obj_id = len(features_dict) + 1  # Gerar um novo ID temporário
+                print(f"Nova detecção, criando ID temporário {obj_id}")
+
+                # Armazenar as características para o novo ID temporário
+                features_dict[obj_id] = (deque([features], maxlen=MAX_FEATURES_PER_ID), current_time)
+
+                # Inicializar contadores para o novo ID temporário
+                frame_counts[obj_id] = 1
                 class_counts[obj_id] = defaultdict(int)
-                class_id = 2  # Não identificado
-                class_name = classes[2]
+                class_counts[obj_id][class_id] += 1
 
-            # Incrementar o contador de frames para o objeto
-            frame_counts[obj_id] += 1
+                # Inicializar a trajetória para o novo ID temporário
+                trajectories[obj_id] = deque([center], maxlen=TRAJECTORY_HISTORY_LENGTH)
 
-            # Contar a classe atual
-            class_counts[obj_id][class_id] += 1
-
-            # Se atingiu 15 frames, determinar a classe predominante
-            if frame_counts[obj_id] == FRAMES_TO_CONFIRM:
-                predominant_class = max(class_counts[obj_id], key=class_counts[obj_id].get)
-                class_id = predominant_class
-                class_name = classes[predominant_class]
-                print(f"Objeto {obj_id} confirmado como {class_name} após {FRAMES_TO_CONFIRM} frames.")
-
-                # Armazenar o ID e a classe confirmados
-                confirmed_ids[obj_id] = {
-                    "id": obj_id,
-                    "class_id": class_id,
-                    "class_name": class_name,
-                    "confirmed": True  # Marcar como confirmado
-                }
-
-                # Só atualizar a contagem após a confirmação do ID e da classe
-                if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
-                    if crossed_line(center, line_points):
-                        inside_count += 1
-                        unique_ids_inside.add(obj_id)
-                    else:
-                        outside_count += 1
-                        unique_ids_outside.add(obj_id)
-
-            # Se ainda não atingiu 15 frames, manter como "não identificado"
-            elif frame_counts[obj_id] < FRAMES_TO_CONFIRM:
+                # Definir como "não identificado" até que seja confirmado
                 class_id = 2  # Não identificado
                 class_name = classes[2]
 
@@ -167,4 +247,4 @@ def process_frame(frame, model_detection, model_classification, extractor, insid
     cv2.putText(frame, f'Entraram: {inside_count}', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     cv2.putText(frame, f'Fora: {outside_count}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-    return inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts, confirmed_ids
+    return inside_count, outside_count, unique_ids_inside, unique_ids_outside, features_dict, frame_counts, class_counts, confirmed_ids, trajectories
