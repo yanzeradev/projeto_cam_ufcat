@@ -73,11 +73,6 @@ if __name__ == '__main__':
         model.save(MODEL_SAVE_PATH)
         print(f"Modelo treinado salvo com sucesso em {MODEL_SAVE_PATH}")
 
-        # Exportar o modelo treinado
-        print("Exportando modelo para ONNX...")
-        model.export(format="onnx")
-        print("Modelo exportado com sucesso.")
-
     except Exception as e:
         print("Erro detectado durante a execução:")
         traceback.print_exc()
