@@ -21,13 +21,13 @@ def load_models():
     model_detection = YOLO("yolov8m.pt").to(device)
     
     logger.info("Carregando modelo YOLO para classificação...")
-    model_classification = YOLO(r"C:\Users\yanka\Documents\DEV\SenseVision\projeto_cam_ufcat\modelo_treinado_v8_Adam-310125-64batch.pt").to(device)
+    model_classification = YOLO(r"projeto_cam_ufcat\modelo_treinado_v8_Adam-310125-64batch.pt").to(device)
 
     # Inicializar o extrator de características do Torchreid (OSNet)
     logger.info("Carregando extrator de características OSNet...")
     extractor = torchreid.utils.FeatureExtractor(
         model_name='osnet_x1_0',
-        model_path=r'C:\Users\yanka\Documents\DEV\SenseVision\projeto_cam_ufcat\osnet_x1_0_imagenet.pth',
+        model_path=r'projeto_cam_ufcat\osnet_x1_0_imagenet.pth',
         device=device
     )
 
