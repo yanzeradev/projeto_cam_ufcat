@@ -1,14 +1,12 @@
 import cv2
 import ffmpeg
 import numpy as np
-import time
-from datetime import datetime
 
 # Configuração da câmera Intelbras
 usuario = 'admin'
 senha = 'senha'
 ip = '127.0.0.1'
-porta = '14389'
+porta = '22479'
 canal = '2'
 subtipo = '0'
 
@@ -25,21 +23,9 @@ process = (
 
 # Tamanho do frame (ajustar conforme sua câmera)
 width, height = 1280, 720  # Ajuste para a resolução correta
-fps = 15  # FPS de captura
 
-# Função para capturar e salvar o vídeo
-def salvar_video(duracao=20):
-    # Nome do arquivo de saída com a data e hora atual
-    data_atual = datetime.now().strftime("%d_%m_%Y_%H_%M_%S")
-    output_file = f'output_{data_atual}.mp4'
-    
-    # Inicializa o gravador de vídeo (usando o codec MJPEG)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_file, fourcc, fps, (width, height))
-
-    # Tempo final para salvar o vídeo
-    tempo_final = time.time() + duracao
-
+# Função para redimensionar e exibir a janela
+def exibir_stream(window_name):
     while True:
         try:
             # Lê o frame do processo FFmpeg
@@ -50,15 +36,16 @@ def salvar_video(duracao=20):
             # Converte os bytes para um array numpy e em seguida para um frame OpenCV
             frame = np.frombuffer(in_bytes, np.uint8).reshape([height, width, 3])
 
-            # Salva o frame no arquivo de vídeo
-            out.write(frame)
+            # Obtém o tamanho atual da janela
+            window_size = cv2.getWindowImageRect(window_name)
+            current_width = window_size[2]
+            current_height = window_size[3]
 
-            # Exibe o frame
-            cv2.imshow("Câmera Intelbras", frame)
+            # Redimensiona o frame para o tamanho da janela
+            resized_frame = cv2.resize(frame, (current_width, current_height))
 
-            # Se o tempo de gravação tiver acabado, encerra a gravação
-            if time.time() > tempo_final:
-                break
+            # Exibe o frame redimensionado
+            cv2.imshow(window_name, resized_frame)
 
             # Pressione 'q' para sair
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -68,12 +55,15 @@ def salvar_video(duracao=20):
             print(f"Erro: {e}")
             break
 
-    # Libera os recursos
-    out.release()
-    cv2.destroyAllWindows()
+# Nome da janela
+window_name = 'Camera-Intelbras'
 
-# Inicia a captura e gravação de 10 segundos
-salvar_video(duracao=20)
+# Cria a janela redimensionável
+cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
-# Finaliza o processo de captura da câmera
+# Inicia a exibição da stream
+exibir_stream(window_name)
+
+# Finaliza o processo e libera recursos
 process.wait()
+cv2.destroyAllWindows()
