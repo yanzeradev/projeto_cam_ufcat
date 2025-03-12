@@ -3,12 +3,14 @@ import os
 import zipfile
 from ultralytics import YOLO
 
+# Dataset people detection
+# https://universe.roboflow.com/ds/RyL3OQg8v7?key=Td0IFlGuMJ
 # URLs e caminhos
-DATASET_URL = "https://app.roboflow.com/ds/jwBWxutnlY?key=O49p0wUgvK"
-DATASET_ZIP_PATH = r"/datasets/jwBWxutnlY.zip"  # Caminho para salvar o dataset baixado
-DATASET_DIR = r"/datasets/jwBWxutnlY"  # Caminho para descompactar o dataset
-MODEL_NAME = "yolov8n.pt"  # Atualizado para YOLOv8
-MODEL_SAVE_PATH = r"modelo_treinado_v8n_adam_140225.pt"
+DATASET_URL = "https://app.roboflow.com/ds/NQf25Zoe7c?key=p1230iAiS0"
+DATASET_ZIP_PATH = r"/datasets/NQf25Zoe7c.zip"  # Caminho para salvar o dataset baixado
+DATASET_DIR = r"/datasets/NQf25Zoe7c"  # Caminho para descompactar o dataset
+MODEL_NAME = "yolo12s.pt"  # Atualizado para YOLOv8
+MODEL_SAVE_PATH = r"modelo_treinado_v12s_12-03-25_adam_imgz640-batch32_300epochs.pt"
 
 def download_and_unzip_dataset(dataset_url, zip_path, extract_dir):
     """Baixa e descompacta o dataset."""
@@ -44,18 +46,19 @@ if __name__ == '__main__':
         # Configuração do treinamento
         train_params = {
             'data': os.path.join(DATASET_DIR, "data.yaml"),  # Caminho local para o dataset
-            "epochs": 100,                   # Número de épocas
-            "batch": -1,                      # Tamanho do batch
-            "lr0": 0.001,                     # Taxa de aprendizado inicial
-            "lrf": 0.15,                      # Taxa de aprendizado final
+            "epochs": 300,                   # Número de épocas
+            "batch": 32,                      # Tamanho do batch
+            "lr0": 0.0005,  # Reduzido para evitar oscilações no aprendizado
+            "lrf": 0.2,  # Maior para garantir uma redução mais gradual
             "momentum": 0.937,                # Momentum
-            "imgsz": 960,                     # Tamanho da imagem de entrada
-            "conf": 0.45,                     # Threshold de confiança
-            "iou": 0.5,                       # Threshold de IOU para supressão não máxima
+            "imgsz": 640,                     # Tamanho da imagem de entrada
+            "conf": 0.4,                     # Threshold de confiança
+            "iou": 0.4,                       # Threshold de IOU para supressão não máxima
             "optimizer": "Adam",              # Otimizador: 'Adam' ou 'SGD'
-            "patience": 15,
             "device": "0",  
-            "val": True
+            "val": True,
+            "amp": True,
+            "cache": False
         }
 
         # Treinar o modelo
