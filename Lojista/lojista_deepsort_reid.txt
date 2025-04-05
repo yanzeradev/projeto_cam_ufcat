@@ -51,36 +51,23 @@ SAVE_IMAGES = True
 IMAGES_DIR = "id_images"
 MAX_AGE = 40  # Tempo máximo (frames) que um tracker pode ficar sem atualização
 
-def process_frame(frame, model_detection, model_classification, tracker, extractor,  # Adicione o extrator
-                 inside_count, outside_count, unique_ids_inside, unique_ids_outside, classes):
+def process_frame(frame, model_detection, model_classification, tracker, extractor, inside_count, outside_count, 
+                 unique_ids_inside, unique_ids_outside, classes):
     
     # Detecção inicial usando YOLO
-    results = model_detection.predict(frame, conf=0.5, iou=0.7)
+    results = model_classification.predict(frame, conf=0.5, iou=0.7)
     
-    # Preparar detecções para o DeepSORT com embeddings
+    # Preparar detecções para o DeepSORT
     detections = []
     for det in results[0].boxes:
         x1, y1, x2, y2 = map(int, det.xyxy[0].cpu().numpy())
         confidence = det.conf[0].item()
         class_id = int(det.cls[0].item())
         
-        # Extrair região de interesse
-        roi = frame[y1:y2, x1:x2]
-        if roi.size == 0:
-            continue
-            
-        # Gerar embedding com OSNet
-        try:
-            embedding = extractor(roi)[0]  # Extrai a feature vetor
-        except Exception as e:
-            print(f"Erro na extração de características: {e}")
-            continue
-            
-        # Criar detecção no formato (bbox, confidence, class_id, embedding)
-        detections.append(([x1, y1, x2 - x1, y2 - y1], confidence, class_id, embedding))
+        detections.append(([x1, y1, x2 - x1, y2 - y1], confidence, class_id))
 
-    # Atualizar tracker com as novas detecções (incluindo embeddings)
-    tracks = tracker.update_tracks(detections, frame=frame)  # O DeepSort agora recebe as embeddings
+    # Atualizar tracker com as novas detecções
+    tracks = tracker.update_tracks(detections, frame=frame)
 
     # Processar tracks atualizados
     for track in tracks:
@@ -92,7 +79,8 @@ def process_frame(frame, model_detection, model_classification, tracker, extract
         x1, y1, x2, y2 = map(int, ltrb)
         center = ((x1 + x2) // 2, (y1 + y2) // 2)
         obj_id = track.track_id
-        class_id = track.get_det_class()
+        
+
         class_name = classes.get(class_id, "desconhecido")
 
         # Atualizar contagem
@@ -134,6 +122,7 @@ def save_id_image(frame, obj_id, x1, y1, x2, y2):
     person_crop = frame[y1:y2, x1:x2]
     if person_crop.size > 0:
         cv2.imwrite(os.path.join(id_dir, f"{int(time.time())}.jpg"), person_crop)
+
 
 MODELS.PY:
 from ultralytics import YOLO
