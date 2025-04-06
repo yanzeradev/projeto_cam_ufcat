@@ -37,6 +37,7 @@ out.release()
 cv2.destroyAllWindows()
 
 
+
 TRACKING.PY:
 import cv2
 import time
@@ -49,25 +50,43 @@ from models import load_models
 FRAMES_TO_CONFIRM = 20
 SAVE_IMAGES = True
 IMAGES_DIR = "id_images"
-MAX_AGE = 40  # Tempo máximo (frames) que um tracker pode ficar sem atualização
+MAX_AGE = 80  # Tempo máximo (frames) que um tracker pode ficar sem atualização
 
-def process_frame(frame, model_detection, model_classification, tracker, extractor, inside_count, outside_count, 
-                 unique_ids_inside, unique_ids_outside, classes):
+# No início do arquivo tracking.py, defina:
+tracked_classes = {}  # Dicionário para armazenar a lista de classes previstas para cada objeto
+
+def process_frame(frame, model_detection, model_classification, tracker, extractor,  
+                  inside_count, outside_count, unique_ids_inside, unique_ids_outside, classes):
+    
+    global tracked_classes  # Para poder acessar/alterar o dicionário global
     
     # Detecção inicial usando YOLO
-    results = model_classification.predict(frame, conf=0.5, iou=0.7)
+    results = model_classification.track(frame, conf=0.5, iou=0.7, persist=True)
     
-    # Preparar detecções para o DeepSORT
+    # Preparar detecções para o DeepSORT com embeddings
     detections = []
     for det in results[0].boxes:
         x1, y1, x2, y2 = map(int, det.xyxy[0].cpu().numpy())
         confidence = det.conf[0].item()
         class_id = int(det.cls[0].item())
         
-        detections.append(([x1, y1, x2 - x1, y2 - y1], confidence, class_id))
+        # Extrair região de interesse
+        roi = frame[y1:y2, x1:x2]
+        if roi.size == 0:
+            continue
+            
+        # Gerar embedding com OSNet
+        try:
+            embedding = extractor(roi)[0]  # Extrai o feature vetor
+        except Exception as e:
+            print(f"Erro na extração de características: {e}")
+            continue
+            
+        # Criar detecção no formato (bbox, confidence, class_id, embedding)
+        detections.append(([x1, y1, x2 - x1, y2 - y1], confidence, class_id, embedding))
 
-    # Atualizar tracker com as novas detecções
-    tracks = tracker.update_tracks(detections, frame=frame)
+    # Atualizar tracker com as novas detecções (incluindo embeddings)
+    tracks = tracker.update_tracks(detections, frame=frame)  # DeepSort agora recebe as embeddings
 
     # Processar tracks atualizados
     for track in tracks:
@@ -79,11 +98,35 @@ def process_frame(frame, model_detection, model_classification, tracker, extract
         x1, y1, x2, y2 = map(int, ltrb)
         center = ((x1 + x2) // 2, (y1 + y2) // 2)
         obj_id = track.track_id
-        
 
-        class_name = classes.get(class_id, "desconhecido")
+        # Se o objeto ainda não teve um label confirmado, usamos 2 ("naoidentificado")
+        current_label = 2
+        if obj_id in tracked_classes and 'confirmed' in tracked_classes[obj_id]:
+            current_label = tracked_classes[obj_id]['confirmed']
+        # Caso ainda não haja histórico para este ID, inicializamos
+        elif obj_id not in tracked_classes:
+            tracked_classes[obj_id] = {'predictions': []}
 
-        # Atualizar contagem
+        # Aqui, usamos o class_id previsto no frame atual
+        # Se o objeto já tiver sido confirmado com outra classe, mantemos o label
+        if current_label == 2:
+            # Adiciona a predição atual no histórico do objeto
+            tracked_classes[obj_id]['predictions'].append(class_id)
+            # Verifica se já temos pelo menos 15 frames
+            if len(tracked_classes[obj_id]['predictions']) >= 15:
+                # Calcula a moda das predições
+                prediction_list = tracked_classes[obj_id]['predictions']
+                confirmed_class = max(set(prediction_list), key=prediction_list.count)
+                # Atualiza o label somente se o atual for 2
+                if current_label == 2:
+                    tracked_classes[obj_id]['confirmed'] = confirmed_class
+                    print("entrouu , ", confirmed_class)
+                    current_label = confirmed_class
+
+        # Recupera o nome da classe (usando a classe atualizada ou não)
+        class_name = classes.get(current_label, "desconhecido")
+
+        # Atualizar contagem (se ainda não foi contado)
         if obj_id not in unique_ids_inside and obj_id not in unique_ids_outside:
             if crossed_line(center, line_points):
                 inside_count += 1
@@ -95,10 +138,10 @@ def process_frame(frame, model_detection, model_classification, tracker, extract
         # Ajustar cor da caixa com base na classe
         color = (0, 255, 0) if class_name == "homem" else (255, 0, 0) if class_name == "mulher" else (0, 0, 255)
 
-        # Desenhar elementos
+        # Desenhar elementos na imagem
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, f'ID: {obj_id} {class_name}', (x1, y1 - 10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
         # Salvar imagem do ID (opcional)
         if SAVE_IMAGES:
@@ -113,6 +156,7 @@ def process_frame(frame, model_detection, model_classification, tracker, extract
     cv2.putText(frame, f'Fora: {outside_count}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
     return inside_count, outside_count, unique_ids_inside, unique_ids_outside
+
 
 def save_id_image(frame, obj_id, x1, y1, x2, y2):
     """Salva imagens dos IDs para verificação manual"""
@@ -154,16 +198,15 @@ def load_models():
     # Inicializar o tracker DeepSORT
     logger.info("Inicializando tracker DeepSORT...")
     tracker = DeepSort(
-        max_age=50,            # Quantos frames um objeto é mantido antes de ser esquecido
-        n_init=20,              # Frames necessários para confirmar um objeto
-        nms_max_overlap=0.5,   # Usa GPU para extração de características
+        max_age=80,            # Quantos frames um objeto é mantido antes de ser esquecido
+        n_init=10,              # Frames necessários para confirmar um objeto
         nn_budget=100          # Memória do modelo de ReID
     )
 
     logger.info("Carregando extrator de características OSNet...")
     extractor = torchreid.utils.FeatureExtractor(
-        model_name='osnet_x1_0',
-        model_path=r'projeto_cam_ufcat\osnet_x1_0_imagenet.pth',
+        model_name='osnet_ain_x1_0',
+        model_path=r'projeto_cam_ufcat\osnet_ain_x1_0_imagenet.pth',
         device=device
     )
 
