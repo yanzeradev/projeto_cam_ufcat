@@ -1,0 +1,64 @@
+from ultralytics import YOLO
+import cv2
+
+model_classification = YOLO(r"C:\Users\yanka\Documents\DEV\SenseVision\projeto_cam_ufcat\modelo_treinado_v8_Adam-310125.pt")
+cap = cv2.VideoCapture(r"C:\Users\yanka\Documents\DEV\SenseVision\projeto_cam_ufcat\cam2.mp4")
+
+while(cap):
+    ret, frame = cap.read()
+    results = model_classification.track(frame, imgsz=1280, conf=0.55, iou=0.7, persist=True, show=True)
+
+
+YOLO CRU COM DEEPSORT:
+from ultralytics import YOLO
+import cv2
+from deep_sort_realtime.deepsort_tracker import DeepSort
+
+# Carrega modelo YOLO treinado para classificação
+model_classification = YOLO(r"projeto_cam_ufcat\modelo_genero_v12s_12-03-25_adam_imgz640-batch24_300epochs.pt")
+cap = cv2.VideoCapture(r"projeto_cam_ufcat\cam4.mp4")
+
+# Inicializa DeepSort
+tracker = DeepSort(
+    max_age=80,
+    n_init=10,
+    nn_budget=100
+)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Usa YOLO para detectar objetos
+    results = model_classification(frame, imgsz=960, conf=0.65, iou=0.7)
+
+    detections = []
+    if results and results[0].boxes is not None:
+        for box in results[0].boxes:
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+            conf = box.conf[0].cpu().numpy()
+            cls = int(box.cls[0].cpu().numpy())
+            detections.append(([x1, y1, x2 - x1, y2 - y1], conf, cls))
+
+    # Atualiza os rastros com as detecções atuais
+    tracks = tracker.update_tracks(detections, frame=frame)
+
+    # Desenha resultados
+    for track in tracks:
+        if not track.is_confirmed():
+            continue
+        track_id = track.track_id
+        ltrb = track.to_ltrb()
+        x1, y1, x2, y2 = map(int, ltrb)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(frame, f'ID: {track_id}', (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+    # Exibe o frame
+    cv2.imshow("Rastreamento com DeepSort", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
