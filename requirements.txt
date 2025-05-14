@@ -10,4 +10,5 @@ ffmpeg-python==0.2.0
 
 DRIVERS PARA UTILIZAÇÃO DE CUDA NO TREINAMENTO DO MODELO
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118                                                                                                                             
-   
+
+https://polygonzone.roboflow.com/
