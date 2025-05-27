@@ -7,6 +7,7 @@ gdown==5.2.0
 tensorboard==2.19.0
 imageio-ffmpeg==0.6.0
 ffmpeg-python==0.2.0
+tensorflow
 
 DRIVERS PARA UTILIZAÇÃO DE CUDA NO TREINAMENTO DO MODELO
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118                                                                                                                             
