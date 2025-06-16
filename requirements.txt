@@ -11,5 +11,6 @@ tensorflow
 
 DRIVERS PARA UTILIZAÇÃO DE CUDA NO TREINAMENTO DO MODELO
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118                                                                                                                             
-
+#link do crowdhuman
+https://universe.roboflow.com/objectdetection-1gccs/crowdhuman-dtwxp/dataset/2
 https://polygonzone.roboflow.com/
